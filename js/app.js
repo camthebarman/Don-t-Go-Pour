@@ -52,6 +52,16 @@ const App = (function () {
   $all(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
   // ---------- header actions ----------
+  function updateThemeButton() {
+    const btn = $("#btn-theme-toggle");
+    btn.textContent = window.Theme.effective() === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode";
+  }
+  $("#btn-theme-toggle").addEventListener("click", () => {
+    window.Theme.toggle();
+    updateThemeButton();
+  });
+  updateThemeButton();
+
   $("#btn-export").addEventListener("click", () => Storage.exportJSON(state));
   $("#btn-reset").addEventListener("click", () => {
     if (confirm("Reset all data to the built-in sample dataset? This discards your current data (export first if you want a backup).")) {
