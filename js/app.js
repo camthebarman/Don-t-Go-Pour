@@ -115,16 +115,17 @@ const App = (function () {
         .slice()
         .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
         .forEach((ing) => {
-          const baseLabel = Calc.BASE_UNITS[ing.baseUnit].label;
+          const perUnitLabel = Calc.unitLabel(ing, 1);
           const purchaseUnit = Calc.purchaseUnitsFor(ing.baseUnit).find((u) => u.id === ing.purchaseUnit);
+          const purchaseLabel = purchaseUnit && purchaseUnit.id === "each" ? Calc.unitLabel(ing, ing.purchaseQty) : purchaseUnit ? purchaseUnit.label : "";
           const cpu = Calc.costPerBaseUnit(ing);
           tbody.append(
             el("tr", {}, [
               el("td", {}, [el("strong", {}, [ing.name])]),
               el("td", {}, [el("span", { class: "pill" }, [ing.category])]),
-              el("td", { class: "muted" }, [`${Calc.fmtNum(ing.purchaseQty, 2)} ${purchaseUnit ? purchaseUnit.label : ""} for ${Calc.fmtMoney(ing.purchaseCost)}`]),
+              el("td", { class: "muted" }, [`${Calc.fmtQty(ing.purchaseQty)} ${purchaseLabel} for ${Calc.fmtMoney(ing.purchaseCost)}`]),
               el("td", { class: "num" }, [Calc.fmtMoney(ing.purchaseCost)]),
-              el("td", { class: "num" }, [`${Calc.fmtMoney(cpu)} / ${baseLabel}`]),
+              el("td", { class: "num" }, [`${Calc.fmtMoney(cpu)} / ${perUnitLabel}`]),
               el("td", {}, [
                 el("div", { class: "row-actions" }, [
                   el("button", { class: "btn btn-sm", onclick: () => openIngredientForm(ing.id) }, ["Edit"]),
@@ -203,7 +204,8 @@ const App = (function () {
           renderIngredients();
           renderRecipes();
           renderDashboard();
-          renderProjections();
+          renderUsage();
+          renderEvents();
           closeModal();
           toast(existing ? "Ingredient updated." : "Ingredient added.");
         });
@@ -376,7 +378,7 @@ const App = (function () {
       const lineCost = Calc.componentCost(ing, c.qty);
       list.append(
         el("li", {}, [
-          el("span", {}, [`${ing.name} — ${Calc.fmtNum(c.qty, 2)} ${Calc.BASE_UNITS[ing.baseUnit].label}`]),
+          el("span", {}, [`${ing.name} — ${Calc.fmtQty(c.qty)} ${Calc.unitLabel(ing, c.qty)}`]),
           el("span", {}, [Calc.fmtMoney(lineCost)]),
         ])
       );
@@ -488,11 +490,11 @@ const App = (function () {
               selectEl(
                 state.ingredients.map((i) => ({ id: i.id, label: `${i.name} (${i.category})` })),
                 comp.ingredientId,
-                (v) => (comp.ingredientId = v)
+                (v) => { comp.ingredientId = v; render(); }
               )
             ),
             field(
-              idx === 0 ? `Qty (${ing ? Calc.BASE_UNITS[ing.baseUnit].label : "unit"})` : "",
+              `Qty (${ing ? Calc.unitLabel(ing, comp.qty) : "unit"})`,
               el("input", { type: "number", step: "any", min: "0", value: comp.qty, oninput: (e) => (comp.qty = e.target.value) })
             ),
             field(idx === 0 ? "Line Cost" : "", el("input", { type: "text", disabled: "disabled", value: Calc.fmtMoney(Calc.componentCost(ing, comp.qty)) })),
@@ -571,7 +573,8 @@ const App = (function () {
           persist();
           renderRecipes();
           renderDashboard();
-          renderProjections();
+          renderUsage();
+          renderEvents();
           closeModal();
           toast(existing ? "Recipe updated." : "Recipe added.");
         });
@@ -588,7 +591,8 @@ const App = (function () {
     persist();
     renderRecipes();
     renderDashboard();
-    renderProjections();
+    renderUsage();
+    renderEvents();
     toast("Recipe deleted.");
   }
 
@@ -671,15 +675,15 @@ const App = (function () {
     return el("div", { class: "stat-card" }, [el("div", { class: "label" }, [label]), el("div", { class: "value" }, [String(value)])]);
   }
 
-  // ================= PROJECTIONS =================
-  function renderProjections() {
-    const panel = $("#panel-projections");
+  // ================= USAGE (weekly/monthly/annual program usage) =================
+  function renderUsage() {
+    const panel = $("#panel-usage");
     panel.innerHTML = "";
     panel.append(
       el("div", { class: "panel-head" }, [
         el("div", {}, [
-          el("h2", {}, ["Usage & Projections"]),
-          el("div", { class: "sub" }, ["Guesstimate weekly program usage or one-off event usage, and see the cost/revenue impact."]),
+          el("h2", {}, ["Usage"]),
+          el("div", { class: "sub" }, ["Guesstimate weekly program usage per recipe and see the weekly/monthly/annual cost and revenue impact."]),
         ]),
       ])
     );
@@ -689,29 +693,24 @@ const App = (function () {
       return;
     }
 
-    let totalWeeklyCost = 0, totalWeeklyRevenue = 0, totalEventCost = 0, totalEventRevenue = 0;
+    let totalWeeklyCost = 0, totalWeeklyRevenue = 0;
     const rows = state.recipes.map((r) => {
       const cost = Calc.recipeCost(r, getIngredient);
       const weekly = Calc.periodProjection(cost, r.menuPrice, r.servingsPerWeek);
-      const evServings = Calc.eventServings(r.eventGuestCount, r.eventDrinksPerGuest, r.eventMixPct);
-      const event = Calc.eventProjection(cost, r.menuPrice, evServings);
       totalWeeklyCost += weekly.weekly.cost;
       totalWeeklyRevenue += weekly.weekly.revenue;
-      totalEventCost += event.cost;
-      totalEventRevenue += event.revenue;
-      return { r, cost, weekly, event };
+      return { r, cost, weekly };
     });
 
     panel.append(
-      el("div", { class: "grid grid-4" }, [
+      el("div", { class: "grid grid-3" }, [
         statCard("Weekly COGS (est.)", Calc.fmtMoney(totalWeeklyCost)),
         statCard("Weekly Revenue (est.)", Calc.fmtMoney(totalWeeklyRevenue)),
         statCard("Weekly Profit (est.)", Calc.fmtMoney(totalWeeklyRevenue - totalWeeklyCost)),
-        statCard("Event Profit (all recipes)", Calc.fmtMoney(totalEventRevenue - totalEventCost)),
       ])
     );
 
-    rows.forEach(({ r, cost, weekly, event }) => {
+    rows.forEach(({ r, cost, weekly }) => {
       const card = el("div", { class: "card" });
       card.append(
         el("div", { style: "display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px" }, [
@@ -720,13 +719,7 @@ const App = (function () {
         ])
       );
 
-      const inputsRow = el("div", { class: "grid grid-4" }, [
-        numberFieldInline("Servings / week", r.servingsPerWeek, (v) => { r.servingsPerWeek = Number(v) || 0; persist(); renderProjections(); }),
-        numberFieldInline("Event guests", r.eventGuestCount, (v) => { r.eventGuestCount = Number(v) || 0; persist(); renderProjections(); }),
-        numberFieldInline("Avg drinks / guest", r.eventDrinksPerGuest, (v) => { r.eventDrinksPerGuest = Number(v) || 0; persist(); renderProjections(); }),
-        numberFieldInline("% choosing this drink", r.eventMixPct, (v) => { r.eventMixPct = Number(v) || 0; persist(); renderProjections(); }),
-      ]);
-      card.append(inputsRow);
+      card.append(numberFieldInline("Servings / week", r.servingsPerWeek, (v) => { r.servingsPerWeek = Number(v) || 0; persist(); renderUsage(); }));
 
       const table = el("table", { style: "margin-top:12px" }, [
         el("thead", {}, [
@@ -740,13 +733,77 @@ const App = (function () {
         ]),
       ]);
       const tbody = el("tbody", {}, [
-        projRow("Weekly (program)", weekly.weekly),
-        projRow("Monthly (program)", weekly.monthly),
-        projRow("Annual (program)", weekly.annual),
-        projRow(`Event (${Calc.fmtNum(event.servings, 0)} drinks est.)`, event),
+        projRow("Weekly", weekly.weekly),
+        projRow("Monthly", weekly.monthly),
+        projRow("Annual", weekly.annual),
       ]);
       table.append(tbody);
       card.append(el("div", { class: "table-wrap" }, [table]));
+      panel.append(card);
+    });
+  }
+
+  // ================= EVENTS (one-off event usage guesstimates) =================
+  function renderEvents() {
+    const panel = $("#panel-events");
+    panel.innerHTML = "";
+    panel.append(
+      el("div", { class: "panel-head" }, [
+        el("div", {}, [
+          el("h2", {}, ["Events"]),
+          el("div", { class: "sub" }, ["Guesstimate one-off event usage per recipe: guest count × average drinks per guest × % of guests choosing that drink."]),
+        ]),
+      ])
+    );
+
+    if (!state.recipes.length) {
+      panel.append(el("div", { class: "card empty-state" }, ["Add recipes first to project event usage."]));
+      return;
+    }
+
+    let totalEventCost = 0, totalEventRevenue = 0;
+    const rows = state.recipes.map((r) => {
+      const cost = Calc.recipeCost(r, getIngredient);
+      const evServings = Calc.eventServings(r.eventGuestCount, r.eventDrinksPerGuest, r.eventMixPct);
+      const event = Calc.eventProjection(cost, r.menuPrice, evServings);
+      totalEventCost += event.cost;
+      totalEventRevenue += event.revenue;
+      return { r, cost, event };
+    });
+
+    panel.append(
+      el("div", { class: "grid grid-3" }, [
+        statCard("Event Cost (all recipes)", Calc.fmtMoney(totalEventCost)),
+        statCard("Event Revenue (all recipes)", Calc.fmtMoney(totalEventRevenue)),
+        statCard("Event Profit (all recipes)", Calc.fmtMoney(totalEventRevenue - totalEventCost)),
+      ])
+    );
+
+    rows.forEach(({ r, cost, event }) => {
+      const card = el("div", { class: "card" });
+      card.append(
+        el("div", { style: "display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px" }, [
+          el("h3", {}, [r.name]),
+          el("span", { class: "muted" }, [`Pour cost: ${Calc.fmtMoney(cost)} / drink`]),
+        ])
+      );
+
+      card.append(
+        el("div", { class: "grid grid-3" }, [
+          numberFieldInline("Event guests", r.eventGuestCount, (v) => { r.eventGuestCount = Number(v) || 0; persist(); renderEvents(); }),
+          numberFieldInline("Avg drinks / guest", r.eventDrinksPerGuest, (v) => { r.eventDrinksPerGuest = Number(v) || 0; persist(); renderEvents(); }),
+          numberFieldInline("% choosing this drink", r.eventMixPct, (v) => { r.eventMixPct = Number(v) || 0; persist(); renderEvents(); }),
+        ])
+      );
+
+      card.append(
+        el("div", { class: "grid grid-4", style: "margin-top:12px" }, [
+          statMini("Estimated Servings", Calc.fmtNum(event.servings, 0)),
+          statMini("Event Cost", Calc.fmtMoney(event.cost)),
+          statMini("Event Revenue", Calc.fmtMoney(event.revenue)),
+          statMini("Event Profit", Calc.fmtMoney(event.profit)),
+        ])
+      );
       panel.append(card);
     });
   }
@@ -792,7 +849,8 @@ const App = (function () {
     renderIngredients();
     renderGlassware();
     renderRecipes();
-    renderProjections();
+    renderUsage();
+    renderEvents();
   }
 
   function init() {
