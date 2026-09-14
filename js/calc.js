@@ -130,6 +130,29 @@ const Calc = (function () {
     return v.toFixed(digits == null ? 2 : digits);
   }
 
+  // Like fmtNum, but drops trailing zeros: 1.00 -> "1", 1.50 -> "1.5".
+  function fmtQty(n, maxDigits) {
+    const v = Number(n) || 0;
+    return parseFloat(v.toFixed(maxDigits == null ? 2 : maxDigits)).toString();
+  }
+
+  function pluralize(word) {
+    if (/[^aeiou]y$/i.test(word)) return word.slice(0, -1) + "ies";
+    if (/(s|x|z|ch|sh)$/i.test(word)) return word + "es";
+    return word + "s";
+  }
+
+  // Display noun for an ingredient's unit, matched to qty (1 wedge, 3 wedges) — a
+  // custom singular unitNoun (e.g. "dash", "wedge") if set, otherwise the generic
+  // base-unit label (which doesn't pluralize: "fl oz", "oz wt").
+  function unitLabel(ingredient, qty) {
+    if (!ingredient) return "";
+    if (ingredient.unitNoun) {
+      return Number(qty) === 1 ? ingredient.unitNoun : pluralize(ingredient.unitNoun);
+    }
+    return BASE_UNITS[ingredient.baseUnit].label;
+  }
+
   function uid(prefix) {
     return (prefix || "id") + "_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   }
@@ -151,6 +174,8 @@ const Calc = (function () {
     fmtMoney,
     fmtPct,
     fmtNum,
+    fmtQty,
+    unitLabel,
     uid,
   };
 })();
