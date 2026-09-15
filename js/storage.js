@@ -2,11 +2,13 @@
    Seed items use fixed ids and a `sinceVersion` tag so that when new
    ingredients/recipes/glasses are added later, anyone with existing saved
    data automatically gets the new ones merged in (without touching what
-   they've already edited) instead of only new visitors seeing them. */
+   they've already edited) instead of only new visitors seeing them.
+   seedPriceUpdates() does the same for ingredient repricing: it only
+   overwrites a price the user hasn't customized away from our default. */
 
 const Storage = (function () {
   const KEY = "pourCostApp.v1";
-  const SEED_VERSION = 2;
+  const SEED_VERSION = 3;
 
   // ---- Glassware presets ----
   function seedGlasses() {
@@ -23,34 +25,65 @@ const Storage = (function () {
   // ---- Ingredients ----
   function seedIngredients() {
     return [
-      // v1
-      { id: "ing_well_vodka", sinceVersion: 1, name: "Well Vodka", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 18 },
-      { id: "ing_tequila_blanco", sinceVersion: 1, name: "Tequila Blanco", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 24 },
-      { id: "ing_white_rum", sinceVersion: 1, name: "White Rum", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 20 },
-      { id: "ing_gin", sinceVersion: 1, name: "London Dry Gin", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22 },
-      { id: "ing_triple_sec", sinceVersion: 1, name: "Triple Sec", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 14 },
-      { id: "ing_lime_juice", sinceVersion: 1, name: "Fresh Lime Juice", category: "Juice", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 6 },
+      // v1 — pricing current as of Sept 2026 (see seedPriceUpdates() for the v1/v2 -> v3 repricing)
+      { id: "ing_well_vodka", sinceVersion: 1, name: "Well Vodka", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 11.00 },
+      { id: "ing_tequila_blanco", sinceVersion: 1, name: "Tequila Blanco", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 20.00 },
+      { id: "ing_white_rum", sinceVersion: 1, name: "White Rum", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 19.99 },
+      { id: "ing_gin", sinceVersion: 1, name: "London Dry Gin", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 14.00 },
+      { id: "ing_triple_sec", sinceVersion: 1, name: "Triple Sec", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 10.00 },
+      { id: "ing_lime_juice", sinceVersion: 1, name: "Fresh Lime Juice", category: "Juice", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 11.00 },
       { id: "ing_simple_syrup", sinceVersion: 1, name: "Simple Syrup", category: "Syrup", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 4 },
-      { id: "ing_tonic_water", sinceVersion: 1, name: "Tonic Water", category: "Mixer", baseUnit: "floz", purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 2.5 },
-      { id: "ing_club_soda", sinceVersion: 1, name: "Club Soda", category: "Mixer", baseUnit: "floz", purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 1.75 },
+      { id: "ing_tonic_water", sinceVersion: 1, name: "Tonic Water", category: "Mixer", baseUnit: "floz", purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 1.99 },
+      { id: "ing_club_soda", sinceVersion: 1, name: "Club Soda", category: "Mixer", baseUnit: "floz", purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 2.75 },
       { id: "ing_cola", sinceVersion: 1, name: "Cola", category: "Mixer", baseUnit: "floz", purchaseUnit: "liter", purchaseQty: 2, purchaseCost: 2.5 },
-      { id: "ing_ice", sinceVersion: 1, name: "Bagged Ice", category: "Ice", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 40, purchaseCost: 6 },
-      { id: "ing_straw", sinceVersion: 1, name: "Straw", category: "Straw", baseUnit: "each", unitNoun: "straw", purchaseUnit: "each", purchaseQty: 500, purchaseCost: 5 },
-      { id: "ing_lime_wedge", sinceVersion: 1, name: "Lime Wedge", category: "Garnish", baseUnit: "each", unitNoun: "wedge", purchaseUnit: "each", purchaseQty: 200, purchaseCost: 8 },
-      { id: "ing_cherry", sinceVersion: 1, name: "Cocktail Cherry", category: "Garnish", baseUnit: "each", unitNoun: "cherry", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 7 },
-      { id: "ing_salt_rim", sinceVersion: 1, name: "Rimming Salt", category: "Garnish", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 3 },
+      { id: "ing_ice", sinceVersion: 1, name: "Bagged Ice", category: "Ice", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 40, purchaseCost: 7.00 },
+      { id: "ing_straw", sinceVersion: 1, name: "Straw", category: "Straw", baseUnit: "each", unitNoun: "straw", purchaseUnit: "each", purchaseQty: 500, purchaseCost: 6.00 },
+      { id: "ing_lime_wedge", sinceVersion: 1, name: "Lime Wedge", category: "Garnish", baseUnit: "each", unitNoun: "wedge", purchaseUnit: "each", purchaseQty: 200, purchaseCost: 14.00 },
+      { id: "ing_cherry", sinceVersion: 1, name: "Cocktail Cherry", category: "Garnish", baseUnit: "each", unitNoun: "cherry", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 8.00 },
+      { id: "ing_salt_rim", sinceVersion: 1, name: "Rimming Salt", category: "Garnish", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 1.50 },
 
       // v2 — added for Old Fashioned, Mai Tai, Lemon Drop Martini
-      { id: "ing_bourbon", sinceVersion: 2, name: "Bourbon Whiskey", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22 },
-      { id: "ing_dark_rum", sinceVersion: 2, name: "Dark Rum", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 26 },
-      { id: "ing_orange_curacao", sinceVersion: 2, name: "Orange Curaçao", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 18 },
-      { id: "ing_orgeat_syrup", sinceVersion: 2, name: "Orgeat Syrup", category: "Syrup", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 12 },
-      { id: "ing_lemon_juice", sinceVersion: 2, name: "Fresh Lemon Juice", category: "Juice", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 6 },
-      { id: "ing_sugar_rim", sinceVersion: 2, name: "Rimming Sugar", category: "Garnish", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 3 },
-      { id: "ing_lemon_twist", sinceVersion: 2, name: "Lemon Twist", category: "Garnish", baseUnit: "each", unitNoun: "twist", purchaseUnit: "each", purchaseQty: 150, purchaseCost: 6 },
-      { id: "ing_mint_sprig", sinceVersion: 2, name: "Mint Sprig", category: "Garnish", baseUnit: "each", unitNoun: "sprig", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 5 },
-      { id: "ing_orange_peel", sinceVersion: 2, name: "Orange Peel", category: "Garnish", baseUnit: "each", unitNoun: "peel", purchaseUnit: "each", purchaseQty: 150, purchaseCost: 9 },
+      { id: "ing_bourbon", sinceVersion: 2, name: "Bourbon Whiskey", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 14.00 },
+      { id: "ing_dark_rum", sinceVersion: 2, name: "Dark Rum", category: "Spirit", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 24.00 },
+      { id: "ing_orange_curacao", sinceVersion: 2, name: "Orange Curaçao", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 13.00 },
+      { id: "ing_orgeat_syrup", sinceVersion: 2, name: "Orgeat Syrup", category: "Syrup", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 11.00 },
+      { id: "ing_lemon_juice", sinceVersion: 2, name: "Fresh Lemon Juice", category: "Juice", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 10.00 },
+      { id: "ing_sugar_rim", sinceVersion: 2, name: "Rimming Sugar", category: "Garnish", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 1.25 },
+      { id: "ing_lemon_twist", sinceVersion: 2, name: "Lemon Twist", category: "Garnish", baseUnit: "each", unitNoun: "twist", purchaseUnit: "each", purchaseQty: 150, purchaseCost: 15.00 },
+      { id: "ing_mint_sprig", sinceVersion: 2, name: "Mint Sprig", category: "Garnish", baseUnit: "each", unitNoun: "sprig", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 13.00 },
+      { id: "ing_orange_peel", sinceVersion: 2, name: "Orange Peel", category: "Garnish", baseUnit: "each", unitNoun: "peel", purchaseUnit: "each", purchaseQty: 150, purchaseCost: 17.00 },
       { id: "ing_angostura_bitters", sinceVersion: 2, name: "Angostura Bitters", category: "Dry Goods", baseUnit: "each", unitNoun: "dash", purchaseUnit: "each", purchaseQty: 200, purchaseCost: 9 },
+    ];
+  }
+
+  // Ingredient pricing corrections to bring the seed data in line with current
+  // real-world market prices. Each entry only overwrites an ingredient if its
+  // purchase fields still exactly match what we originally shipped — so a
+  // price the user has since edited themselves is left untouched.
+  function seedPriceUpdates() {
+    return [
+      { id: "ing_well_vodka", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 18 }, set: { purchaseCost: 11.00 } },
+      { id: "ing_tequila_blanco", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 24 }, set: { purchaseQty: 750, purchaseCost: 20.00 } },
+      { id: "ing_white_rum", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 20 }, set: { purchaseCost: 19.99 } },
+      { id: "ing_gin", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22 }, set: { purchaseCost: 14.00 } },
+      { id: "ing_triple_sec", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 14 }, set: { purchaseCost: 10.00 } },
+      { id: "ing_lime_juice", sinceVersion: 3, match: { purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 6 }, set: { purchaseCost: 11.00 } },
+      { id: "ing_tonic_water", sinceVersion: 3, match: { purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 2.5 }, set: { purchaseCost: 1.99 } },
+      { id: "ing_club_soda", sinceVersion: 3, match: { purchaseUnit: "liter", purchaseQty: 1, purchaseCost: 1.75 }, set: { purchaseCost: 2.75 } },
+      { id: "ing_ice", sinceVersion: 3, match: { purchaseUnit: "lb", purchaseQty: 40, purchaseCost: 6 }, set: { purchaseCost: 7.00 } },
+      { id: "ing_straw", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 500, purchaseCost: 5 }, set: { purchaseCost: 6.00 } },
+      { id: "ing_lime_wedge", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 200, purchaseCost: 8 }, set: { purchaseCost: 14.00 } },
+      { id: "ing_cherry", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 100, purchaseCost: 7 }, set: { purchaseCost: 8.00 } },
+      { id: "ing_salt_rim", sinceVersion: 3, match: { purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 3 }, set: { purchaseCost: 1.50 } },
+      { id: "ing_bourbon", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22 }, set: { purchaseCost: 14.00 } },
+      { id: "ing_dark_rum", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 1000, purchaseCost: 26 }, set: { purchaseCost: 24.00 } },
+      { id: "ing_orange_curacao", sinceVersion: 3, match: { purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 18 }, set: { purchaseCost: 13.00 } },
+      { id: "ing_orgeat_syrup", sinceVersion: 3, match: { purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 12 }, set: { purchaseCost: 11.00 } },
+      { id: "ing_lemon_juice", sinceVersion: 3, match: { purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 6 }, set: { purchaseCost: 10.00 } },
+      { id: "ing_sugar_rim", sinceVersion: 3, match: { purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 3 }, set: { purchaseCost: 1.25 } },
+      { id: "ing_lemon_twist", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 150, purchaseCost: 6 }, set: { purchaseCost: 15.00 } },
+      { id: "ing_mint_sprig", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 100, purchaseCost: 5 }, set: { purchaseCost: 13.00 } },
+      { id: "ing_orange_peel", sinceVersion: 3, match: { purchaseUnit: "each", purchaseQty: 150, purchaseCost: 9 }, set: { purchaseCost: 17.00 } },
     ];
   }
 
@@ -181,6 +214,14 @@ const Storage = (function () {
       if (rec.sinceVersion > fromVersion && !existingRecipeIds.has(rec.id)) {
         state.recipes.push(rec);
       }
+    });
+
+    seedPriceUpdates().forEach((update) => {
+      if (update.sinceVersion <= fromVersion) return;
+      const ing = state.ingredients.find((i) => i.id === update.id);
+      if (!ing) return;
+      const stillDefault = Object.keys(update.match).every((key) => ing[key] === update.match[key]);
+      if (stillDefault) Object.assign(ing, update.set);
     });
 
     state.seedVersion = SEED_VERSION;
