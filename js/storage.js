@@ -1,14 +1,14 @@
 /* storage.js — state shape, localStorage persistence, versioned seed data.
    Seed items use fixed ids and a `sinceVersion` tag so that when new
-   ingredients/recipes/glasses are added later, anyone with existing saved
-   data automatically gets the new ones merged in (without touching what
-   they've already edited) instead of only new visitors seeing them.
+   ingredients/recipes/glasses/preps are added later, anyone with existing
+   saved data automatically gets the new ones merged in (without touching
+   what they've already edited) instead of only new visitors seeing them.
    seedPriceUpdates() does the same for ingredient repricing: it only
    overwrites a price the user hasn't customized away from our default. */
 
 const Storage = (function () {
   const KEY = "pourCostApp.v1";
-  const SEED_VERSION = 3;
+  const SEED_VERSION = 4;
 
   // ---- Glassware presets ----
   function seedGlasses() {
@@ -19,6 +19,8 @@ const Storage = (function () {
       { id: "glass_coupe", sinceVersion: 1, name: "Coupe / Martini", volumeOz: 6, defaultIceOz: 0, defaultStraw: false, notes: "Up, served without ice" },
       { id: "glass_pint", sinceVersion: 1, name: "Pint", volumeOz: 16, defaultIceOz: 0, defaultStraw: false, notes: "Beer pint" },
       { id: "glass_shot", sinceVersion: 1, name: "Shot", volumeOz: 2, defaultIceOz: 0, defaultStraw: false, notes: "Neat shot / shooter" },
+      { id: "glass_copper_mug", sinceVersion: 4, name: "Copper Mug", volumeOz: 12, defaultIceOz: 5, defaultStraw: false, notes: "Moscow Mule mug" },
+      { id: "glass_wine", sinceVersion: 4, name: "Wine / Spritz Glass", volumeOz: 12, defaultIceOz: 3, defaultStraw: false, notes: "Stemmed glass, used for spritzes" },
     ];
   }
 
@@ -53,6 +55,21 @@ const Storage = (function () {
       { id: "ing_mint_sprig", sinceVersion: 2, name: "Mint Sprig", category: "Garnish", baseUnit: "each", unitNoun: "sprig", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 13.00 },
       { id: "ing_orange_peel", sinceVersion: 2, name: "Orange Peel", category: "Garnish", baseUnit: "each", unitNoun: "peel", purchaseUnit: "each", purchaseQty: 150, purchaseCost: 17.00 },
       { id: "ing_angostura_bitters", sinceVersion: 2, name: "Angostura Bitters", category: "Dry Goods", baseUnit: "each", unitNoun: "dash", purchaseUnit: "each", purchaseQty: 200, purchaseCost: 9 },
+
+      // v4 — added for Whiskey Smash, Espresso Martini, Spicy Paloma, Moscow Mule, Aperol Spritz, Whiskey Sour
+      { id: "ing_aperol", sinceVersion: 4, name: "Aperol", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22.00 },
+      { id: "ing_prosecco", sinceVersion: 4, name: "Prosecco", category: "Wine", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 14.00 },
+      { id: "ing_coffee_liqueur", sinceVersion: 4, name: "Coffee Liqueur", category: "Liqueur", baseUnit: "floz", purchaseUnit: "ml", purchaseQty: 750, purchaseCost: 22.00 },
+      { id: "ing_grapefruit_juice", sinceVersion: 4, name: "Fresh Grapefruit Juice", category: "Juice", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 8.00 },
+      { id: "ing_egg_white", sinceVersion: 4, name: "Egg White (Pasteurized)", category: "Dry Goods", baseUnit: "floz", purchaseUnit: "floz", purchaseQty: 32, purchaseCost: 5.50 },
+      { id: "ing_ginger_root", sinceVersion: 4, name: "Fresh Ginger Root", category: "Dry Goods", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 2.50 },
+      { id: "ing_jalapeno", sinceVersion: 4, name: "Fresh Jalapeño", category: "Dry Goods", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 1.50 },
+      { id: "ing_brown_sugar", sinceVersion: 4, name: "Brown Sugar", category: "Dry Goods", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 1.50 },
+      { id: "ing_granulated_sugar", sinceVersion: 4, name: "Granulated Sugar", category: "Dry Goods", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 1.10 },
+      { id: "ing_ground_coffee", sinceVersion: 4, name: "Ground Coffee", category: "Dry Goods", baseUnit: "ozwt", purchaseUnit: "lb", purchaseQty: 1, purchaseCost: 9.50 },
+      { id: "ing_coffee_beans", sinceVersion: 4, name: "Coffee Beans (garnish)", category: "Garnish", baseUnit: "each", unitNoun: "bean", purchaseUnit: "each", purchaseQty: 300, purchaseCost: 3.00 },
+      { id: "ing_grapefruit_wedge", sinceVersion: 4, name: "Grapefruit Wedge", category: "Garnish", baseUnit: "each", unitNoun: "wedge", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 17.00 },
+      { id: "ing_orange_wheel", sinceVersion: 4, name: "Orange Wheel", category: "Garnish", baseUnit: "each", unitNoun: "wheel", purchaseUnit: "each", purchaseQty: 100, purchaseCost: 15.50 },
     ];
   }
 
@@ -87,15 +104,60 @@ const Storage = (function () {
     ];
   }
 
+  // ---- Preps (house-made syrups / concentrates / infusions) ----
+  // Each prep is built from raw ingredients (never from another prep) plus a
+  // batch yield; its cost per unit is computed live from those ingredients'
+  // current prices — see Calc.prepBatchCost / prepCostPerUnit.
+  function seedPreps() {
+    const g = Calc.uid;
+    return [
+      {
+        id: "prep_brown_sugar_syrup", sinceVersion: 4, name: "Brown Sugar Syrup", category: "Syrup",
+        baseUnit: "floz", yieldQty: 32,
+        instructions: "Combine equal parts brown sugar and hot water, stir until fully dissolved, cool, and bottle. Keeps refrigerated about 2 weeks.",
+        components: [{ id: g("pcomp"), ingredientId: "ing_brown_sugar", qty: 16 }],
+      },
+      {
+        id: "prep_cold_brew_concentrate", sinceVersion: 4, name: "Cold Brew Coffee Concentrate", category: "Concentrate",
+        baseUnit: "floz", yieldQty: 32,
+        instructions: "Combine coarse ground coffee with cold water at a 1:4 ratio, steep 16-18 hours refrigerated, then strain through a fine mesh or cheesecloth. Keeps refrigerated about 1 week.",
+        components: [{ id: g("pcomp"), ingredientId: "ing_ground_coffee", qty: 8 }],
+      },
+      {
+        id: "prep_jalapeno_lime_syrup", sinceVersion: 4, name: "Jalapeño-Lime Syrup", category: "Syrup",
+        baseUnit: "floz", yieldQty: 32,
+        instructions: "Simmer sliced jalapeño with sugar and water for 5 minutes, remove from heat, stir in fresh lime juice, steep 20 minutes, then strain.",
+        components: [
+          { id: g("pcomp"), ingredientId: "ing_granulated_sugar", qty: 12 },
+          { id: g("pcomp"), ingredientId: "ing_jalapeno", qty: 3 },
+          { id: g("pcomp"), ingredientId: "ing_lime_juice", qty: 2 },
+        ],
+      },
+      {
+        id: "prep_ginger_syrup", sinceVersion: 4, name: "Ginger Syrup", category: "Syrup",
+        baseUnit: "floz", yieldQty: 32,
+        instructions: "Simmer grated fresh ginger with sugar and water for 15 minutes, steep 30 minutes off heat, then strain through a fine mesh.",
+        components: [
+          { id: g("pcomp"), ingredientId: "ing_ginger_root", qty: 8 },
+          { id: g("pcomp"), ingredientId: "ing_granulated_sugar", qty: 16 },
+        ],
+      },
+    ];
+  }
+
   // ---- Recipes ----
+  // servingsPerNight x settings.operatingNightsPerWeek drives the Usage tab's
+  // weekly/monthly/annual projections. Numbers below are calibrated so the
+  // full 12-drink menu totals roughly $3,000 in cocktail sales on a busy
+  // night for a small bar, with a realistic popular/slow-mover spread.
   function seedRecipes() {
     const g = Calc.uid;
     return [
       // v1
       {
         id: "rec_margarita", sinceVersion: 1, name: "Margarita", category: "Classic", glassId: "glass_rocks",
-        menuPrice: 11, targetPourCostPct: 20, servingsPerWeek: 60,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 20,
+        menuPrice: 12, targetPourCostPct: 20, servingsPerNight: 32,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 13,
         components: [
           { id: g("comp"), ingredientId: "ing_tequila_blanco", qty: 1.5, label: "Tequila" },
           { id: g("comp"), ingredientId: "ing_triple_sec", qty: 1, label: "Triple sec" },
@@ -108,8 +170,8 @@ const Storage = (function () {
       },
       {
         id: "rec_gin_tonic", sinceVersion: 1, name: "Gin & Tonic", category: "Highball", glassId: "glass_highball",
-        menuPrice: 9, targetPourCostPct: 20, servingsPerWeek: 80,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 15,
+        menuPrice: 10, targetPourCostPct: 20, servingsPerNight: 22,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 9,
         components: [
           { id: g("comp"), ingredientId: "ing_gin", qty: 1.5, label: "Gin" },
           { id: g("comp"), ingredientId: "ing_tonic_water", qty: 5, label: "Tonic water" },
@@ -120,8 +182,8 @@ const Storage = (function () {
       },
       {
         id: "rec_rum_cola", sinceVersion: 1, name: "Rum & Coke", category: "Highball", glassId: "glass_highball",
-        menuPrice: 8, targetPourCostPct: 20, servingsPerWeek: 70,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 15,
+        menuPrice: 9, targetPourCostPct: 20, servingsPerNight: 19,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 7,
         components: [
           { id: g("comp"), ingredientId: "ing_white_rum", qty: 1.5, label: "White rum" },
           { id: g("comp"), ingredientId: "ing_cola", qty: 5, label: "Cola" },
@@ -133,8 +195,8 @@ const Storage = (function () {
       // v2
       {
         id: "rec_old_fashioned", sinceVersion: 2, name: "Old Fashioned", category: "Classic", glassId: "glass_rocks",
-        menuPrice: 12, targetPourCostPct: 20, servingsPerWeek: 50,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 15,
+        menuPrice: 13, targetPourCostPct: 20, servingsPerNight: 27,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 11,
         components: [
           { id: g("comp"), ingredientId: "ing_bourbon", qty: 2, label: "Bourbon whiskey" },
           { id: g("comp"), ingredientId: "ing_simple_syrup", qty: 0.25, label: "Simple syrup" },
@@ -145,8 +207,8 @@ const Storage = (function () {
       },
       {
         id: "rec_mai_tai", sinceVersion: 2, name: "Mai Tai", category: "Tiki", glassId: "glass_rocks",
-        menuPrice: 13, targetPourCostPct: 20, servingsPerWeek: 40,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 10,
+        menuPrice: 14, targetPourCostPct: 20, servingsPerNight: 11,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 4,
         components: [
           { id: g("comp"), ingredientId: "ing_white_rum", qty: 1, label: "White rum" },
           { id: g("comp"), ingredientId: "ing_dark_rum", qty: 1, label: "Dark rum (float)" },
@@ -160,8 +222,8 @@ const Storage = (function () {
       },
       {
         id: "rec_lemon_drop", sinceVersion: 2, name: "Lemon Drop Martini", category: "Martini", glassId: "glass_coupe",
-        menuPrice: 12, targetPourCostPct: 20, servingsPerWeek: 45,
-        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 12,
+        menuPrice: 13, targetPourCostPct: 20, servingsPerNight: 14,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 5,
         components: [
           { id: g("comp"), ingredientId: "ing_well_vodka", qty: 1.5, label: "Vodka" },
           { id: g("comp"), ingredientId: "ing_triple_sec", qty: 0.5, label: "Triple sec" },
@@ -172,6 +234,85 @@ const Storage = (function () {
           { id: g("comp"), ingredientId: "ing_lemon_twist", qty: 1, label: "Lemon twist garnish" },
         ],
       },
+
+      // v4
+      {
+        id: "rec_whiskey_smash", sinceVersion: 4, name: "Whiskey Smash", category: "Whiskey", glassId: "glass_rocks",
+        menuPrice: 13, targetPourCostPct: 20, servingsPerNight: 14,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 5,
+        components: [
+          { id: g("comp"), ingredientId: "ing_bourbon", qty: 2, label: "Bourbon whiskey" },
+          { id: g("comp"), ingredientId: "ing_lemon_juice", qty: 0.75, label: "Fresh lemon juice" },
+          { id: g("comp"), ingredientId: "prep_brown_sugar_syrup", qty: 0.5, label: "Brown sugar syrup" },
+          { id: g("comp"), ingredientId: "ing_mint_sprig", qty: 2, label: "Mint (muddled + garnish)" },
+          { id: g("comp"), ingredientId: "ing_ice", qty: 4, label: "Ice" },
+        ],
+      },
+      {
+        id: "rec_espresso_martini", sinceVersion: 4, name: "Espresso Martini", category: "Martini", glassId: "glass_coupe",
+        menuPrice: 14, targetPourCostPct: 20, servingsPerNight: 8,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 3,
+        components: [
+          { id: g("comp"), ingredientId: "ing_well_vodka", qty: 1.5, label: "Vodka" },
+          { id: g("comp"), ingredientId: "ing_coffee_liqueur", qty: 0.5, label: "Coffee liqueur" },
+          { id: g("comp"), ingredientId: "prep_cold_brew_concentrate", qty: 1, label: "Cold brew concentrate" },
+          { id: g("comp"), ingredientId: "ing_simple_syrup", qty: 0.25, label: "Simple syrup" },
+          { id: g("comp"), ingredientId: "ing_coffee_beans", qty: 3, label: "Coffee bean garnish" },
+        ],
+      },
+      {
+        id: "rec_spicy_paloma", sinceVersion: 4, name: "Spicy Paloma", category: "Highball", glassId: "glass_highball",
+        menuPrice: 12, targetPourCostPct: 20, servingsPerNight: 16,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 6,
+        components: [
+          { id: g("comp"), ingredientId: "ing_tequila_blanco", qty: 1.5, label: "Tequila" },
+          { id: g("comp"), ingredientId: "ing_grapefruit_juice", qty: 2, label: "Fresh grapefruit juice" },
+          { id: g("comp"), ingredientId: "ing_lime_juice", qty: 0.5, label: "Fresh lime juice" },
+          { id: g("comp"), ingredientId: "prep_jalapeno_lime_syrup", qty: 0.5, label: "Jalapeño-lime syrup" },
+          { id: g("comp"), ingredientId: "ing_club_soda", qty: 3, label: "Club soda (top)" },
+          { id: g("comp"), ingredientId: "ing_salt_rim", qty: 0.15, label: "Salt rim" },
+          { id: g("comp"), ingredientId: "ing_grapefruit_wedge", qty: 1, label: "Grapefruit wedge garnish" },
+          { id: g("comp"), ingredientId: "ing_ice", qty: 5, label: "Ice" },
+        ],
+      },
+      {
+        id: "rec_moscow_mule", sinceVersion: 4, name: "Moscow Mule", category: "Highball", glassId: "glass_copper_mug",
+        menuPrice: 11, targetPourCostPct: 20, servingsPerNight: 38,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 15,
+        components: [
+          { id: g("comp"), ingredientId: "ing_well_vodka", qty: 2, label: "Vodka" },
+          { id: g("comp"), ingredientId: "prep_ginger_syrup", qty: 0.75, label: "Ginger syrup" },
+          { id: g("comp"), ingredientId: "ing_lime_juice", qty: 0.5, label: "Fresh lime juice" },
+          { id: g("comp"), ingredientId: "ing_club_soda", qty: 4, label: "Club soda (top)" },
+          { id: g("comp"), ingredientId: "ing_ice", qty: 5, label: "Ice" },
+          { id: g("comp"), ingredientId: "ing_lime_wedge", qty: 1, label: "Lime wedge garnish" },
+        ],
+      },
+      {
+        id: "rec_aperol_spritz", sinceVersion: 4, name: "Aperol Spritz", category: "Spritz", glassId: "glass_wine",
+        menuPrice: 13, targetPourCostPct: 20, servingsPerNight: 30,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 12,
+        components: [
+          { id: g("comp"), ingredientId: "ing_aperol", qty: 3, label: "Aperol" },
+          { id: g("comp"), ingredientId: "ing_prosecco", qty: 3, label: "Prosecco" },
+          { id: g("comp"), ingredientId: "ing_club_soda", qty: 1, label: "Club soda (splash)" },
+          { id: g("comp"), ingredientId: "ing_orange_wheel", qty: 1, label: "Orange wheel garnish" },
+          { id: g("comp"), ingredientId: "ing_ice", qty: 4, label: "Ice" },
+        ],
+      },
+      {
+        id: "rec_whiskey_sour", sinceVersion: 4, name: "Whiskey Sour", category: "Whiskey", glassId: "glass_coupe",
+        menuPrice: 12, targetPourCostPct: 20, servingsPerNight: 24,
+        eventGuestCount: 100, eventDrinksPerGuest: 2, eventMixPct: 9,
+        components: [
+          { id: g("comp"), ingredientId: "ing_bourbon", qty: 2, label: "Bourbon whiskey" },
+          { id: g("comp"), ingredientId: "ing_lemon_juice", qty: 0.75, label: "Fresh lemon juice" },
+          { id: g("comp"), ingredientId: "ing_simple_syrup", qty: 0.5, label: "Simple syrup" },
+          { id: g("comp"), ingredientId: "ing_egg_white", qty: 0.5, label: "Egg white" },
+          { id: g("comp"), ingredientId: "ing_angostura_bitters", qty: 2, label: "Angostura bitters (float)" },
+          { id: g("comp"), ingredientId: "ing_cherry", qty: 1, label: "Cherry garnish" },
+        ],
+      },
     ];
   }
 
@@ -180,17 +321,38 @@ const Storage = (function () {
       ingredients: seedIngredients(),
       glassSizes: seedGlasses(),
       recipes: seedRecipes(),
+      preps: seedPreps(),
       settings: {
         defaultTargetPourCostPct: 20,
         defaultIceIngredientId: "ing_ice",
         defaultStrawIngredientId: "ing_straw",
+        operatingNightsPerWeek: 6,
       },
       seedVersion: SEED_VERSION,
     };
   }
 
-  // Merge in any seed ingredients/glasses/recipes added since the state was last saved,
-  // without touching anything the user has already edited or added themselves.
+  // One-time structural fixes applied to ANY loaded state, regardless of
+  // seedVersion — these touch every recipe (seeded or user-created), not
+  // just ones matching a shipped default, because they're schema fixes
+  // rather than content updates.
+  function migrateSchema(state) {
+    if (!state.settings) state.settings = {};
+    if (state.settings.operatingNightsPerWeek == null) state.settings.operatingNightsPerWeek = 6;
+    const nights = state.settings.operatingNightsPerWeek || 6;
+
+    (state.recipes || []).forEach((r) => {
+      if (r.servingsPerNight == null) {
+        r.servingsPerNight = r.servingsPerWeek != null ? Math.round(r.servingsPerWeek / nights) : 0;
+      }
+      delete r.servingsPerWeek;
+    });
+
+    if (!state.preps) state.preps = [];
+  }
+
+  // Merge in any seed ingredients/glasses/recipes/preps added since the state was
+  // last saved, without touching anything the user has already edited or added themselves.
   function applySeedUpdates(state) {
     const fromVersion = state.seedVersion || 1;
     if (fromVersion >= SEED_VERSION) return state;
@@ -216,6 +378,14 @@ const Storage = (function () {
       }
     });
 
+    if (!state.preps) state.preps = [];
+    const existingPrepIds = new Set(state.preps.map((p) => p.id));
+    seedPreps().forEach((prep) => {
+      if (prep.sinceVersion > fromVersion && !existingPrepIds.has(prep.id)) {
+        state.preps.push(prep);
+      }
+    });
+
     seedPriceUpdates().forEach((update) => {
       if (update.sinceVersion <= fromVersion) return;
       const ing = state.ingredients.find((i) => i.id === update.id);
@@ -235,6 +405,7 @@ const Storage = (function () {
       if (!raw) return defaultState();
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.ingredients || !parsed.glassSizes || !parsed.recipes) return defaultState();
+      migrateSchema(parsed);
       return applySeedUpdates(parsed);
     } catch (e) {
       console.warn("Failed to load saved data, using defaults.", e);
