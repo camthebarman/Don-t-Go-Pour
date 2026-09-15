@@ -4,6 +4,7 @@ const App = (function () {
   let state = Storage.load();
 
   const CATEGORIES = ["Spirit", "Liqueur", "Wine", "Beer", "Mixer", "Juice", "Syrup", "Ice", "Garnish", "Straw", "Dry Goods", "Other"];
+  const PREP_CATEGORIES = ["Syrup", "Concentrate", "Infusion", "Mix", "Other"];
 
   // ---------- generic helpers ----------
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -31,6 +32,19 @@ const App = (function () {
   function getIngredient(id) { return state.ingredients.find((i) => i.id === id); }
   function getGlass(id) { return state.glassSizes.find((g) => g.id === id); }
   function getRecipe(id) { return state.recipes.find((r) => r.id === id); }
+  function getPrep(id) { return state.preps.find((p) => p.id === id); }
+
+  // Resolves a recipe component's ingredientId to either a raw ingredient or,
+  // if it's a house-made prep, a computed ingredient-like view of that prep
+  // (batch cost spread across its yield) — so recipe cost math treats both
+  // the same way without caring which one it got.
+  function resolveComponent(id) {
+    const ing = getIngredient(id);
+    if (ing) return ing;
+    const prep = getPrep(id);
+    if (!prep) return null;
+    return Calc.prepAsIngredient(prep, getIngredient);
+  }
 
   // ---------- modal ----------
   function openModal(title, renderFn) {
@@ -78,8 +92,11 @@ const App = (function () {
       try {
         const parsed = JSON.parse(reader.result);
         if (!parsed.ingredients || !parsed.glassSizes || !parsed.recipes) throw new Error("Missing fields");
-        state = parsed;
-        persist();
+        // Save raw, then reload through Storage.load() so older exports (pre-preps,
+        // servingsPerWeek instead of servingsPerNight, etc.) get migrated the same
+        // way an old browser's saved data would be.
+        Storage.save(parsed);
+        state = Storage.load();
         renderAll();
         toast("Data imported.");
       } catch (err) {
@@ -212,6 +229,7 @@ const App = (function () {
           }
           persist();
           renderIngredients();
+          renderPreps();
           renderRecipes();
           renderDashboard();
           renderUsage();
@@ -226,9 +244,11 @@ const App = (function () {
   }
 
   function deleteIngredient(id) {
-    const usedIn = state.recipes.filter((r) => r.components.some((c) => c.ingredientId === id));
-    if (usedIn.length) {
-      alert(`Can't delete — used in: ${usedIn.map((r) => r.name).join(", ")}. Remove it from those recipes first.`);
+    const usedInRecipes = state.recipes.filter((r) => r.components.some((c) => c.ingredientId === id));
+    const usedInPreps = state.preps.filter((p) => p.components.some((c) => c.ingredientId === id));
+    if (usedInRecipes.length || usedInPreps.length) {
+      const names = [...usedInRecipes.map((r) => r.name), ...usedInPreps.map((p) => p.name + " (prep)")];
+      alert(`Can't delete — used in: ${names.join(", ")}. Remove it from those first.`);
       return;
     }
     if (!confirm("Delete this ingredient?")) return;
@@ -236,6 +256,204 @@ const App = (function () {
     persist();
     renderIngredients();
     toast("Ingredient deleted.");
+  }
+
+  // ================= PREPS (house-made syrups, concentrates, infusions) =================
+  function renderPreps() {
+    const panel = $("#panel-preps");
+    panel.innerHTML = "";
+    panel.append(
+      el("div", { class: "panel-head" }, [
+        el("div", {}, [
+          el("h2", {}, ["Preps"]),
+          el("div", { class: "sub" }, ["House-made syrups, concentrates, and infusions — batch cost spread across the yield, built from your raw ingredients."]),
+        ]),
+        el("button", { class: "btn btn-primary", onclick: () => openPrepForm() }, ["+ Add Prep"]),
+      ])
+    );
+
+    if (!state.preps.length) {
+      panel.append(el("div", { class: "card empty-state" }, ["No preps yet. Add a house-made syrup, concentrate, or infusion."]));
+      return;
+    }
+
+    state.preps.forEach((prep) => panel.append(renderPrepCard(prep)));
+  }
+
+  function renderPrepCard(prep) {
+    const batchCost = Calc.prepBatchCost(prep, getIngredient);
+    const perUnit = Calc.prepCostPerUnit(prep, getIngredient);
+    const unitLabelStr = Calc.unitLabel(prep, 1);
+
+    const card = el("div", { class: "card recipe-card" }, [
+      el("div", { class: "recipe-card-head" }, [
+        el("div", {}, [
+          el("h3", {}, [prep.name]),
+          el("div", { class: "recipe-meta" }, [`${prep.category || "Prep"} · Yields ${Calc.fmtQty(prep.yieldQty)} ${Calc.unitLabel(prep, prep.yieldQty)}`]),
+        ]),
+        el("div", { class: "row-actions" }, [
+          el("button", { class: "btn btn-sm", onclick: () => openPrepForm(prep.id) }, ["Edit"]),
+          el("button", { class: "btn btn-sm danger", onclick: () => deletePrep(prep.id) }, ["Delete"]),
+        ]),
+      ]),
+    ]);
+
+    const bodyWrap = el("div", { class: "recipe-card-body two-col" });
+
+    const list = el("ul", { class: "breakdown-list" });
+    (prep.components || []).forEach((c) => {
+      const ing = getIngredient(c.ingredientId);
+      if (!ing) return;
+      list.append(
+        el("li", {}, [
+          el("span", {}, [`${ing.name} — ${Calc.fmtQty(c.qty)} ${Calc.unitLabel(ing, c.qty)}`]),
+          el("span", {}, [Calc.fmtMoney(Calc.componentCost(ing, c.qty))]),
+        ])
+      );
+    });
+    if (!prep.components || !prep.components.length) list.append(el("li", {}, [el("span", { class: "muted" }, ["No components added yet."])]));
+    const left = el("div", {}, [el("div", { class: "section-title" }, ["Batch Components"]), list]);
+
+    const right = el("div", {}, [
+      el("div", { class: "section-title" }, ["Batch Cost"]),
+      el("div", { class: "grid grid-2", style: "gap:10px" }, [
+        statMini("Batch Cost", Calc.fmtMoney(batchCost)),
+        statMini(`Cost / ${unitLabelStr}`, Calc.fmtMoney(perUnit)),
+      ]),
+      prep.instructions ? el("div", { class: "callout good", style: "margin-top:12px" }, [prep.instructions]) : el("span", {}),
+    ]);
+
+    bodyWrap.append(left, right);
+    card.append(bodyWrap);
+    return card;
+  }
+
+  function openPrepForm(id) {
+    const existing = id ? getPrep(id) : null;
+    openModal(existing ? "Edit Prep" : "Add Prep", (body) => {
+      const draft = existing
+        ? JSON.parse(JSON.stringify(existing))
+        : { name: "", category: "Syrup", baseUnit: "floz", yieldQty: "", instructions: "", components: [] };
+
+      function render() {
+        body.innerHTML = "";
+
+        const form = el("form", {});
+        form.append(
+          field("Prep Name", el("input", { type: "text", required: "required", value: draft.name, oninput: (e) => (draft.name = e.target.value) })),
+          fieldRow([
+            field("Category", selectEl(PREP_CATEGORIES, draft.category, (v) => (draft.category = v))),
+            field(
+              "Measured By",
+              selectEl(
+                Object.entries(Calc.BASE_UNITS).map(([id, u]) => ({ id, label: u.long })),
+                draft.baseUnit,
+                (v) => { draft.baseUnit = v; render(); },
+                true
+              )
+            ),
+          ]),
+          field("Batch Yield", el("input", { type: "number", step: "any", min: "0", required: "required", value: draft.yieldQty, oninput: (e) => (draft.yieldQty = e.target.value) }))
+        );
+
+        const compSection = el("div", {}, [el("div", { class: "section-title" }, ["Batch Components (built from raw ingredients)"])]);
+        if (!draft.components.length) {
+          compSection.append(el("p", { class: "muted" }, ["No components yet — add one below."]));
+        }
+        draft.components.forEach((comp, idx) => {
+          const ing = getIngredient(comp.ingredientId);
+          const row = el("div", { class: "component-row" }, [
+            field(
+              idx === 0 ? "Ingredient" : "",
+              selectEl(
+                state.ingredients.map((i) => ({ id: i.id, label: `${i.name} (${i.category})` })),
+                comp.ingredientId,
+                (v) => { comp.ingredientId = v; render(); }
+              )
+            ),
+            field(
+              `Qty (${ing ? Calc.unitLabel(ing, comp.qty) : "unit"})`,
+              el("input", { type: "number", step: "any", min: "0", value: comp.qty, oninput: (e) => (comp.qty = e.target.value) })
+            ),
+            field(idx === 0 ? "Line Cost" : "", el("input", { type: "text", disabled: "disabled", value: Calc.fmtMoney(Calc.componentCost(ing, comp.qty)) })),
+            el("button", { type: "button", class: "btn btn-sm danger btn-icon", title: "Remove", onclick: () => { draft.components.splice(idx, 1); render(); } }, ["✕"]),
+          ]);
+          compSection.append(row);
+        });
+        compSection.append(
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn btn-sm",
+              style: "margin-top:8px",
+              onclick: () => {
+                draft.components.push({ id: Calc.uid("pcomp"), ingredientId: state.ingredients[0] ? state.ingredients[0].id : "", qty: 0 });
+                render();
+              },
+            },
+            ["+ Add Component"]
+          )
+        );
+        form.append(compSection);
+
+        form.append(
+          el("p", { class: "hint", id: "prep-cost-line" }, [costLineText()]),
+          field("Instructions", el("textarea", { rows: "3", oninput: (e) => (draft.instructions = e.target.value) }, [draft.instructions || ""])),
+          el("div", { class: "form-actions" }, [
+            el("button", { type: "button", class: "btn", onclick: closeModal }, ["Cancel"]),
+            el("button", { type: "submit", class: "btn btn-primary" }, [existing ? "Save Changes" : "Add Prep"]),
+          ])
+        );
+
+        function costLineText() {
+          const c = Calc.prepBatchCost(draft, getIngredient);
+          const yieldQty = Number(draft.yieldQty) || 0;
+          const perUnit = yieldQty ? c / yieldQty : 0;
+          return `Batch cost: ${Calc.fmtMoney(c)} — cost per ${Calc.BASE_UNITS[draft.baseUnit].label}: ${Calc.fmtMoney(perUnit)}`;
+        }
+
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          if (!draft.name.trim()) return;
+          draft.yieldQty = Number(draft.yieldQty) || 0;
+          draft.components = draft.components
+            .filter((c) => c.ingredientId)
+            .map((c) => ({ ...c, qty: Number(c.qty) || 0 }));
+
+          if (existing) {
+            Object.assign(existing, draft);
+          } else {
+            draft.id = Calc.uid("prep");
+            state.preps.push(draft);
+          }
+          persist();
+          renderPreps();
+          renderRecipes();
+          renderDashboard();
+          renderUsage();
+          renderEvents();
+          closeModal();
+          toast(existing ? "Prep updated." : "Prep added.");
+        });
+
+        body.append(form);
+      }
+      render();
+    });
+  }
+
+  function deletePrep(id) {
+    const usedIn = state.recipes.filter((r) => r.components.some((c) => c.ingredientId === id));
+    if (usedIn.length) {
+      alert(`Can't delete — used in: ${usedIn.map((r) => r.name).join(", ")}. Remove it from those recipes first.`);
+      return;
+    }
+    if (!confirm("Delete this prep?")) return;
+    state.preps = state.preps.filter((p) => p.id !== id);
+    persist();
+    renderPreps();
+    toast("Prep deleted.");
   }
 
   // ================= GLASSWARE =================
@@ -347,12 +565,18 @@ const App = (function () {
       return;
     }
 
-    state.recipes.forEach((r) => panel.append(renderRecipeCard(r)));
+    // Popularity ranking, by estimated servings/night — drives the "Best
+    // Seller" / "Least Popular" badges on each card.
+    const ranked = state.recipes.slice().sort((a, b) => (b.servingsPerNight || 0) - (a.servingsPerNight || 0));
+    const rankById = new Map(ranked.map((r, i) => [r.id, i + 1]));
+    const total = state.recipes.length;
+
+    state.recipes.forEach((r) => panel.append(renderRecipeCard(r, rankById.get(r.id), total)));
   }
 
-  function renderRecipeCard(recipe) {
+  function renderRecipeCard(recipe, rank, total) {
     const glass = getGlass(recipe.glassId);
-    const cost = Calc.recipeCost(recipe, getIngredient);
+    const cost = Calc.recipeCost(recipe, resolveComponent);
     const suggested = Calc.suggestedPrice(cost, recipe.targetPourCostPct);
     const actualPct = Calc.pourCostPct(cost, recipe.menuPrice);
     const profit = Calc.grossProfit(cost, recipe.menuPrice);
@@ -363,6 +587,13 @@ const App = (function () {
       else if (actualPct > recipe.targetPourCostPct) pillClass = "warn";
     }
 
+    let popularityBadge = null;
+    if (rank != null && total != null) {
+      if (rank === 1) popularityBadge = el("span", { class: "pill good" }, ["🔥 Best Seller"]);
+      else if (rank === total && total > 1) popularityBadge = el("span", { class: "pill warn" }, ["Least Popular"]);
+      else popularityBadge = el("span", { class: "pill" }, [`#${rank} of ${total} by volume`]);
+    }
+
     const card = el("div", { class: "card recipe-card" }, [
       el("div", { class: "recipe-card-head" }, [
         el("div", {}, [
@@ -370,6 +601,12 @@ const App = (function () {
           el("div", { class: "recipe-meta" }, [
             `${recipe.category || "Uncategorized"} · ${glass ? glass.name + " (" + glass.volumeOz + " oz)" : "No glass set"}`,
           ]),
+          popularityBadge
+            ? el("div", { style: "margin-top:6px; display:flex; align-items:center; gap:6px;" }, [
+                popularityBadge,
+                el("span", { class: "muted" }, [`${Calc.fmtNum(recipe.servingsPerNight || 0, 0)} / night (est.)`]),
+              ])
+            : el("span", {}),
         ]),
         el("div", { class: "row-actions" }, [
           el("button", { class: "btn btn-sm", onclick: () => openRecipeForm(recipe.id) }, ["Edit"]),
@@ -383,7 +620,7 @@ const App = (function () {
     // Left: component breakdown
     const list = el("ul", { class: "breakdown-list" });
     recipe.components.forEach((c) => {
-      const ing = getIngredient(c.ingredientId);
+      const ing = resolveComponent(c.ingredientId);
       if (!ing) return;
       const lineCost = Calc.componentCost(ing, c.qty);
       list.append(
@@ -435,7 +672,7 @@ const App = (function () {
             glassId: state.glassSizes[0] ? state.glassSizes[0].id : "",
             menuPrice: "",
             targetPourCostPct: state.settings.defaultTargetPourCostPct || 20,
-            servingsPerWeek: "",
+            servingsPerNight: "",
             eventGuestCount: "",
             eventDrinksPerGuest: "",
             eventMixPct: "",
@@ -457,7 +694,7 @@ const App = (function () {
 
       function render() {
         body.innerHTML = "";
-        const cost = Calc.recipeCost(draft, getIngredient);
+        const cost = Calc.recipeCost(draft, resolveComponent);
 
         const form = el("form", {});
         form.append(
@@ -488,20 +725,16 @@ const App = (function () {
             : el("span", {})
         );
 
-        const compSection = el("div", {}, [el("div", { class: "section-title" }, ["Components (spirits, mixers, dry goods, ice, straws, garnish)"])]);
+        const compSection = el("div", {}, [el("div", { class: "section-title" }, ["Components (spirits, mixers, dry goods, ice, straws, garnish, house-made preps)"])]);
         if (!draft.components.length) {
           compSection.append(el("p", { class: "muted" }, ["No components yet — add one below."]));
         }
         draft.components.forEach((comp, idx) => {
-          const ing = getIngredient(comp.ingredientId);
+          const ing = resolveComponent(comp.ingredientId);
           const row = el("div", { class: "component-row" }, [
             field(
               idx === 0 ? "Ingredient" : "",
-              selectEl(
-                state.ingredients.map((i) => ({ id: i.id, label: `${i.name} (${i.category})` })),
-                comp.ingredientId,
-                (v) => { comp.ingredientId = v; render(); }
-              )
+              componentSourceSelect(comp.ingredientId, (v) => { comp.ingredientId = v; render(); })
             ),
             field(
               `Qty (${ing ? Calc.unitLabel(ing, comp.qty) : "unit"})`,
@@ -538,7 +771,7 @@ const App = (function () {
           el("p", { class: "hint", id: "recipe-cost-line" }, [costLineText()]),
 
           el("div", { class: "section-title" }, ["Usage Guesstimates"]),
-          field("Estimated servings / week", el("input", { type: "number", step: "any", min: "0", value: draft.servingsPerWeek, oninput: (e) => (draft.servingsPerWeek = e.target.value) })),
+          field("Estimated servings / night", el("input", { type: "number", step: "any", min: "0", value: draft.servingsPerNight, oninput: (e) => (draft.servingsPerNight = e.target.value) })),
           fieldRow([
             field("Event guest count", el("input", { type: "number", step: "any", min: "0", value: draft.eventGuestCount, oninput: (e) => (draft.eventGuestCount = e.target.value) })),
             field("Avg drinks / guest", el("input", { type: "number", step: "any", min: "0", value: draft.eventDrinksPerGuest, oninput: (e) => (draft.eventDrinksPerGuest = e.target.value) })),
@@ -552,7 +785,7 @@ const App = (function () {
         );
 
         function costLineText() {
-          const c = Calc.recipeCost(draft, getIngredient);
+          const c = Calc.recipeCost(draft, resolveComponent);
           const sp = Calc.suggestedPrice(c, draft.targetPourCostPct);
           return `Total pour cost: ${Calc.fmtMoney(c)} — suggested price at ${draft.targetPourCostPct || 0}% pour cost: ${Calc.fmtMoney(sp)}`;
         }
@@ -566,7 +799,7 @@ const App = (function () {
           if (!draft.name.trim()) return;
           draft.menuPrice = draft.menuPrice === "" ? "" : Number(draft.menuPrice);
           draft.targetPourCostPct = Number(draft.targetPourCostPct) || 0;
-          draft.servingsPerWeek = Number(draft.servingsPerWeek) || 0;
+          draft.servingsPerNight = Number(draft.servingsPerNight) || 0;
           draft.eventGuestCount = Number(draft.eventGuestCount) || 0;
           draft.eventDrinksPerGuest = Number(draft.eventDrinksPerGuest) || 0;
           draft.eventMixPct = Number(draft.eventMixPct) || 0;
@@ -617,25 +850,28 @@ const App = (function () {
     );
 
     const recipeStats = state.recipes.map((r) => {
-      const cost = Calc.recipeCost(r, getIngredient);
+      const cost = Calc.recipeCost(r, resolveComponent);
       return { r, cost, pct: r.menuPrice ? Calc.pourCostPct(cost, r.menuPrice) : null };
     });
     const priced = recipeStats.filter((s) => s.pct !== null);
     const avgPct = priced.length ? priced.reduce((s, x) => s + x.pct, 0) / priced.length : 0;
 
-    let weeklyCost = 0, weeklyRevenue = 0;
+    const nights = state.settings.operatingNightsPerWeek || 6;
+    let nightlyRevenue = 0, weeklyCost = 0, weeklyRevenue = 0;
     recipeStats.forEach((s) => {
-      const proj = Calc.periodProjection(s.cost, s.r.menuPrice, s.r.servingsPerWeek);
+      nightlyRevenue += (Number(s.r.menuPrice) || 0) * (s.r.servingsPerNight || 0);
+      const weeklyServings = (s.r.servingsPerNight || 0) * nights;
+      const proj = Calc.periodProjection(s.cost, s.r.menuPrice, weeklyServings);
       weeklyCost += proj.weekly.cost;
       weeklyRevenue += proj.weekly.revenue;
     });
 
     panel.append(
       el("div", { class: "grid grid-4" }, [
-        statCard("Recipes", state.recipes.length),
-        statCard("Ingredients Tracked", state.ingredients.length),
+        statCard("Nightly Sales (est.)", Calc.fmtMoney(nightlyRevenue)),
         statCard("Avg. Pour Cost %", priced.length ? Calc.fmtPct(avgPct) : "—"),
         statCard("Weekly Profit (est.)", Calc.fmtMoney(weeklyRevenue - weeklyCost)),
+        statCard("Recipes / Ingredients", `${state.recipes.length} / ${state.ingredients.length}`),
       ])
     );
 
@@ -685,7 +921,7 @@ const App = (function () {
     return el("div", { class: "stat-card" }, [el("div", { class: "label" }, [label]), el("div", { class: "value" }, [String(value)])]);
   }
 
-  // ================= USAGE (weekly/monthly/annual program usage) =================
+  // ================= USAGE (nightly/weekly/monthly/annual program usage) =================
   function renderUsage() {
     const panel = $("#panel-usage");
     panel.innerHTML = "";
@@ -693,7 +929,15 @@ const App = (function () {
       el("div", { class: "panel-head" }, [
         el("div", {}, [
           el("h2", {}, ["Usage"]),
-          el("div", { class: "sub" }, ["Guesstimate weekly program usage per recipe and see the weekly/monthly/annual cost and revenue impact."]),
+          el("div", { class: "sub" }, ["Guesstimate servings per night per recipe and see the nightly/weekly/monthly/annual cost and revenue impact."]),
+        ]),
+        el("div", { style: "min-width:200px" }, [
+          numberFieldInline("Operating nights / week", state.settings.operatingNightsPerWeek, (v) => {
+            state.settings.operatingNightsPerWeek = Number(v) || 6;
+            persist();
+            renderUsage();
+            renderDashboard();
+          }),
         ]),
       ])
     );
@@ -703,24 +947,34 @@ const App = (function () {
       return;
     }
 
-    let totalWeeklyCost = 0, totalWeeklyRevenue = 0;
+    const nights = state.settings.operatingNightsPerWeek || 6;
+    let totalNightlyRevenue = 0, totalWeeklyCost = 0, totalWeeklyRevenue = 0;
     const rows = state.recipes.map((r) => {
-      const cost = Calc.recipeCost(r, getIngredient);
-      const weekly = Calc.periodProjection(cost, r.menuPrice, r.servingsPerWeek);
+      const cost = Calc.recipeCost(r, resolveComponent);
+      const servingsPerNight = r.servingsPerNight || 0;
+      const nightly = {
+        servings: servingsPerNight,
+        cost: cost * servingsPerNight,
+        revenue: (Number(r.menuPrice) || 0) * servingsPerNight,
+        profit: (Number(r.menuPrice) || 0) * servingsPerNight - cost * servingsPerNight,
+      };
+      const weekly = Calc.periodProjection(cost, r.menuPrice, servingsPerNight * nights);
+      totalNightlyRevenue += nightly.revenue;
       totalWeeklyCost += weekly.weekly.cost;
       totalWeeklyRevenue += weekly.weekly.revenue;
-      return { r, cost, weekly };
+      return { r, cost, nightly, weekly };
     });
 
     panel.append(
-      el("div", { class: "grid grid-3" }, [
+      el("div", { class: "grid grid-4" }, [
+        statCard("Nightly Sales (est.)", Calc.fmtMoney(totalNightlyRevenue)),
         statCard("Weekly COGS (est.)", Calc.fmtMoney(totalWeeklyCost)),
         statCard("Weekly Revenue (est.)", Calc.fmtMoney(totalWeeklyRevenue)),
         statCard("Weekly Profit (est.)", Calc.fmtMoney(totalWeeklyRevenue - totalWeeklyCost)),
       ])
     );
 
-    rows.forEach(({ r, cost, weekly }) => {
+    rows.forEach(({ r, cost, nightly, weekly }) => {
       const card = el("div", { class: "card" });
       card.append(
         el("div", { style: "display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px" }, [
@@ -729,7 +983,7 @@ const App = (function () {
         ])
       );
 
-      card.append(numberFieldInline("Servings / week", r.servingsPerWeek, (v) => { r.servingsPerWeek = Number(v) || 0; persist(); renderUsage(); }));
+      card.append(numberFieldInline("Servings / night", r.servingsPerNight, (v) => { r.servingsPerNight = Number(v) || 0; persist(); renderUsage(); renderDashboard(); }));
 
       const table = el("table", { style: "margin-top:12px" }, [
         el("thead", {}, [
@@ -743,6 +997,7 @@ const App = (function () {
         ]),
       ]);
       const tbody = el("tbody", {}, [
+        projRow("Nightly", nightly),
         projRow("Weekly", weekly.weekly),
         projRow("Monthly", weekly.monthly),
         projRow("Annual", weekly.annual),
@@ -773,7 +1028,7 @@ const App = (function () {
 
     let totalEventCost = 0, totalEventRevenue = 0;
     const rows = state.recipes.map((r) => {
-      const cost = Calc.recipeCost(r, getIngredient);
+      const cost = Calc.recipeCost(r, resolveComponent);
       const evServings = Calc.eventServings(r.eventGuestCount, r.eventDrinksPerGuest, r.eventMixPct);
       const event = Calc.eventProjection(cost, r.menuPrice, evServings);
       totalEventCost += event.cost;
@@ -853,10 +1108,34 @@ const App = (function () {
     return sel;
   }
 
+  // Recipe-component picker: raw ingredients and house-made preps, grouped.
+  function componentSourceSelect(value, onChange) {
+    const sel = el("select", {});
+    const ingGroup = el("optgroup", { label: "Ingredients" });
+    state.ingredients.forEach((i) => {
+      const opt = el("option", { value: i.id }, [`${i.name} (${i.category})`]);
+      if (i.id === value) opt.setAttribute("selected", "selected");
+      ingGroup.append(opt);
+    });
+    sel.append(ingGroup);
+    if (state.preps.length) {
+      const prepGroup = el("optgroup", { label: "House-Made Preps" });
+      state.preps.forEach((p) => {
+        const opt = el("option", { value: p.id }, [`${p.name} (${p.category})`]);
+        if (p.id === value) opt.setAttribute("selected", "selected");
+        prepGroup.append(opt);
+      });
+      sel.append(prepGroup);
+    }
+    sel.addEventListener("change", (e) => onChange(e.target.value));
+    return sel;
+  }
+
   // ---------- init ----------
   function renderAll() {
     renderDashboard();
     renderIngredients();
+    renderPreps();
     renderGlassware();
     renderRecipes();
     renderUsage();

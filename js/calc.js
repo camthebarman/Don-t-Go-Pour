@@ -55,6 +55,39 @@ const Calc = (function () {
     }, 0);
   }
 
+  // A "prep" (house-made syrup, concentrate, infusion) has its own sub-recipe of
+  // raw ingredients plus a batch yield — cost per unit is the batch cost spread
+  // across the yield. `resolveIngredient` must resolve RAW ingredients only.
+  function prepBatchCost(prep, resolveIngredient) {
+    return (prep.components || []).reduce((sum, c) => {
+      const ing = resolveIngredient(c.ingredientId);
+      return sum + componentCost(ing, c.qty);
+    }, 0);
+  }
+
+  function prepCostPerUnit(prep, resolveIngredient) {
+    const yieldQty = Number(prep.yieldQty) || 0;
+    if (!yieldQty) return 0;
+    return prepBatchCost(prep, resolveIngredient) / yieldQty;
+  }
+
+  // Presents a prep as an ingredient-like object so it can be used anywhere a
+  // recipe component resolves against `costPerBaseUnit` / `componentCost` —
+  // "purchased" in its own base unit, at its own yield quantity and batch cost.
+  function prepAsIngredient(prep, resolveIngredient) {
+    return {
+      id: prep.id,
+      name: prep.name,
+      category: prep.category,
+      baseUnit: prep.baseUnit,
+      unitNoun: prep.unitNoun,
+      purchaseUnit: prep.baseUnit,
+      purchaseQty: prep.yieldQty,
+      purchaseCost: prepBatchCost(prep, resolveIngredient),
+      isPrep: true,
+    };
+  }
+
   // Pour-cost math.
   function suggestedPrice(cost, targetPourCostPct) {
     const pct = Number(targetPourCostPct) || 0;
@@ -164,6 +197,9 @@ const Calc = (function () {
     costPerBaseUnit,
     componentCost,
     recipeCost,
+    prepBatchCost,
+    prepCostPerUnit,
+    prepAsIngredient,
     suggestedPrice,
     pourCostPct,
     grossProfit,
