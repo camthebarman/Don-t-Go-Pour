@@ -1008,7 +1008,7 @@ const App = (function () {
     });
   }
 
-  // ================= EVENTS (one-off event usage guesstimates) =================
+  // ================= EVENTS (one-off event prep planning) =================
   function renderEvents() {
     const panel = $("#panel-events");
     panel.innerHTML = "";
@@ -1016,7 +1016,7 @@ const App = (function () {
       el("div", { class: "panel-head" }, [
         el("div", {}, [
           el("h2", {}, ["Events"]),
-          el("div", { class: "sub" }, ["Guesstimate one-off event usage per recipe: guest count × average drinks per guest × % of guests choosing that drink."]),
+          el("div", { class: "sub" }, ["Set a guest count, average drinks per guest, and % choosing each drink below, then see exactly what to prep and buy for the whole event — liquor, mixers, syrup batches, garnish. Revenue and profit are tracked too, just secondary here."]),
         ]),
       ])
     );
@@ -1026,23 +1026,30 @@ const App = (function () {
       return;
     }
 
-    let totalEventCost = 0, totalEventRevenue = 0;
+    let totalEventCost = 0, totalEventRevenue = 0, totalEventServings = 0;
     const rows = state.recipes.map((r) => {
       const cost = Calc.recipeCost(r, resolveComponent);
       const evServings = Calc.eventServings(r.eventGuestCount, r.eventDrinksPerGuest, r.eventMixPct);
       const event = Calc.eventProjection(cost, r.menuPrice, evServings);
       totalEventCost += event.cost;
       totalEventRevenue += event.revenue;
+      totalEventServings += event.servings;
       return { r, cost, event };
     });
 
     panel.append(
-      el("div", { class: "grid grid-3" }, [
+      el("div", { class: "grid grid-4" }, [
+        statCard("Total Drinks Needed (est.)", Calc.fmtNum(totalEventServings, 0)),
         statCard("Event Cost (all recipes)", Calc.fmtMoney(totalEventCost)),
         statCard("Event Revenue (all recipes)", Calc.fmtMoney(totalEventRevenue)),
         statCard("Event Profit (all recipes)", Calc.fmtMoney(totalEventRevenue - totalEventCost)),
       ])
     );
+
+    panel.append(renderEventPrepList());
+
+    const perRecipeHeading = el("div", { class: "section-title", style: "margin: 4px 2px 4px" }, ["Per-Recipe Event Assumptions"]);
+    panel.append(perRecipeHeading);
 
     rows.forEach(({ r, cost, event }) => {
       const card = el("div", { class: "card" });
@@ -1062,15 +1069,96 @@ const App = (function () {
       );
 
       card.append(
-        el("div", { class: "grid grid-4", style: "margin-top:12px" }, [
-          statMini("Estimated Servings", Calc.fmtNum(event.servings, 0)),
-          statMini("Event Cost", Calc.fmtMoney(event.cost)),
-          statMini("Event Revenue", Calc.fmtMoney(event.revenue)),
-          statMini("Event Profit", Calc.fmtMoney(event.profit)),
+        el("div", { class: "muted", style: "margin-top:10px" }, [
+          `${Calc.fmtNum(event.servings, 0)} drinks est. · cost ${Calc.fmtMoney(event.cost)} · revenue ${Calc.fmtMoney(event.revenue)} · profit ${Calc.fmtMoney(event.profit)}`,
         ])
       );
       panel.append(card);
     });
+  }
+
+  // Combined shopping/prep list across every recipe's event guesstimate: how
+  // much of each raw ingredient to buy (rounded up to whole purchase units)
+  // and how many batches of each house-made prep to make ahead of time.
+  function computeEventPrepList() {
+    const items = new Map();
+    state.recipes.forEach((r) => {
+      const servings = Calc.eventServings(r.eventGuestCount, r.eventDrinksPerGuest, r.eventMixPct);
+      if (!servings) return;
+      (r.components || []).forEach((c) => {
+        const source = resolveComponent(c.ingredientId);
+        if (!source) return;
+        const qtyNeeded = (Number(c.qty) || 0) * servings;
+        if (!items.has(c.ingredientId)) {
+          items.set(c.ingredientId, { id: c.ingredientId, name: source.name, category: source.category || "Other", isPrep: !!source.isPrep, totalQty: 0 });
+        }
+        items.get(c.ingredientId).totalQty += qtyNeeded;
+      });
+    });
+    return Array.from(items.values()).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  }
+
+  function renderEventPrepList() {
+    const items = computeEventPrepList();
+    const card = el("div", { class: "card" }, [
+      el("h3", {}, ["🧊 What To Prep & Buy"]),
+      el("p", { class: "sub", style: "margin-top:-6px" }, ["Combined across every recipe below, based on its event guesstimate — everything you need to have on hand for the whole event."]),
+    ]);
+
+    if (!items.length) {
+      card.append(el("div", { class: "empty-state" }, ["Set event guests / drinks-per-guest / mix % on the recipes below to build the prep list."]));
+      return card;
+    }
+
+    const table = el("table", {}, [
+      el("thead", {}, [
+        el("tr", {}, [
+          el("th", {}, ["Item"]),
+          el("th", {}, ["Category"]),
+          el("th", { class: "num" }, ["Total Needed"]),
+          el("th", {}, ["Buy / Prep"]),
+        ]),
+      ]),
+    ]);
+    const tbody = el("tbody");
+
+    items.forEach((item) => {
+      let needText = "—";
+      let actionText = "—";
+
+      if (item.isPrep) {
+        const prep = getPrep(item.id);
+        if (prep) {
+          const yieldQty = Number(prep.yieldQty) || 0;
+          needText = `${Calc.fmtQty(item.totalQty)} ${Calc.unitLabel(prep, item.totalQty)}`;
+          const batches = yieldQty ? Math.ceil(item.totalQty / yieldQty) : 0;
+          actionText = `Prep ${batches} batch${batches === 1 ? "" : "es"} (yields ${Calc.fmtQty(yieldQty)} ${Calc.unitLabel(prep, yieldQty)} each)`;
+        }
+      } else {
+        const ing = getIngredient(item.id);
+        if (ing) {
+          needText = `${Calc.fmtQty(item.totalQty)} ${Calc.unitLabel(ing, item.totalQty)}`;
+          const perPurchase = Calc.toBaseQty(ing.baseUnit, ing.purchaseUnit, ing.purchaseQty);
+          const purchaseUnit = Calc.purchaseUnitsFor(ing.baseUnit).find((u) => u.id === ing.purchaseUnit);
+          const purchaseLabel = purchaseUnit && purchaseUnit.id === "each" ? Calc.unitLabel(ing, ing.purchaseQty) : purchaseUnit ? purchaseUnit.label : "";
+          const count = perPurchase ? Math.ceil(item.totalQty / perPurchase) : 0;
+          actionText = perPurchase ? `Buy ${count} × ${Calc.fmtQty(ing.purchaseQty)} ${purchaseLabel}` : "—";
+        }
+      }
+
+      tbody.append(
+        el("tr", {}, [
+          el("td", {}, [item.name, item.isPrep ? el("span", { class: "pill good", style: "margin-left:6px" }, ["PREP"]) : el("span", {})]),
+          el("td", {}, [el("span", { class: "pill" }, [item.category])]),
+          el("td", { class: "num" }, [needText]),
+          el("td", {}, [actionText]),
+        ])
+      );
+    });
+
+    table.append(tbody);
+    card.append(el("div", { class: "table-wrap" }, [table]));
+    return card;
   }
 
   function projRow(label, data) {
